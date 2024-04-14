@@ -24,11 +24,21 @@ pub fn build(b: *std.Build) void {
     });
     lib.addIncludePath(.{ .path = "include" });
     lib.linkLibC();
-    addPaths(&lib.root_module);
+
+    if (target.result.isDarwin()) {
+        const xcode_frameworks = b.lazyDependency("xcode_frameworks", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        if (xcode_frameworks) |dep| {
+            lib.linkLibrary(dep.artifact("xcode-frameworks"));
+            lib.installLibraryHeaders(dep.artifact("xcode-frameworks"));
+        }
+    }
 
     if (shared) lib.defineCMacro("_GLFW_BUILD_DLL", "1");
 
-    lib.installHeadersDirectory("include/GLFW", "GLFW");
+    lib.installHeadersDirectory(b.path("include/GLFW"), "GLFW", .{});
     // GLFW headers depend on these headers, so they must be distributed too.
     const vulkan_headers_dep = b.dependency("vulkan_headers", .{
         .target = target,
@@ -36,18 +46,22 @@ pub fn build(b: *std.Build) void {
     });
     lib.installLibraryHeaders(vulkan_headers_dep.artifact("vulkan-headers"));
     if (target.result.os.tag == .linux) {
-        const x11_headers_dep = b.dependency("x11_headers", .{
+        const x11_headers_dep = b.lazyDependency("x11_headers", .{
             .target = target,
             .optimize = optimize,
         });
-        const wayland_headers_dep = b.dependency("wayland_headers", .{
+        const wayland_headers_dep = b.lazyDependency("wayland_headers", .{
             .target = target,
             .optimize = optimize,
         });
-        lib.linkLibrary(x11_headers_dep.artifact("x11-headers"));
-        lib.linkLibrary(wayland_headers_dep.artifact("wayland-headers"));
-        lib.installLibraryHeaders(x11_headers_dep.artifact("x11-headers"));
-        lib.installLibraryHeaders(wayland_headers_dep.artifact("wayland-headers"));
+        if (x11_headers_dep) |dep| {
+            lib.linkLibrary(dep.artifact("x11-headers"));
+            lib.installLibraryHeaders(dep.artifact("x11-headers"));
+        }
+        if (wayland_headers_dep) |dep| {
+            lib.linkLibrary(dep.artifact("wayland-headers"));
+            lib.installLibraryHeaders(dep.artifact("wayland-headers"));
+        }
     }
 
     if (target.result.isDarwin()) {
@@ -148,10 +162,6 @@ pub fn build(b: *std.Build) void {
         },
     }
     b.installArtifact(lib);
-}
-
-pub fn addPaths(mod: *std.Build.Module) void {
-    if (mod.resolved_target.?.result.os.tag == .macos) @import("xcode_frameworks").addPaths(mod);
 }
 
 const base_sources = [_][]const u8{
